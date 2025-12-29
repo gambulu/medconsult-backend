@@ -186,26 +186,29 @@ app.post('/api/user/stats', authenticateToken, async (req, res) => {
   const { sessionDuration } = req.body;
 
   try {
-    const minutes = Math.floor(sessionDuration / 60);
+    // We use Math.max(1, ...) to ensure even a 10-second call counts as 1 minute
+    const minutes = Math.max(1, Math.floor(sessionDuration / 60));
 
     const result = await pool.query(
       `UPDATE users 
        SET sessions = sessions + 1, 
-           total_minutes = total_minutes + $1 
+           total_minutes = total_minutes + $1,
+           weekly_minutes = weekly_minutes + $1 
        WHERE id = $2 
-       RETURNING sessions, total_minutes`,
+       RETURNING sessions, total_minutes, weekly_minutes`,
       [minutes, req.user.id]
     );
 
     res.json({
       sessions: result.rows[0].sessions,
-      totalMinutes: result.rows[0].total_minutes  // Convert to camelCase HERE
+      totalMinutes: result.rows[0].total_minutes,
+      weeklyMinutes: result.rows[0].weekly_minutes
     });
   } catch (error) {
     console.error('Update stats error:', error);
     res.status(500).json({ error: 'Server error updating stats' });
   }
-});
+}); // Ensure this closing is exactly like this
 
 // Get current user info
 app.get('app.get('/api/user/me', authenticateToken, async (req, res) => {
