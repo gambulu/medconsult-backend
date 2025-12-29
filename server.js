@@ -113,7 +113,10 @@ app.post('/api/auth/login', async (req, res) => {
   const { email, password } = req.body;
 
   try {
-    // ... validation code ...
+    // Validate input
+    if (!email || !password) {
+      return res.status(400).json({ error: 'Email and password are required' });
+    }
 
     // Find user
     const result = await pool.query(
@@ -125,7 +128,7 @@ app.post('/api/auth/login', async (req, res) => {
       return res.status(401).json({ error: 'Invalid email or password' });
     }
 
-    const user = result.rows[0];  // <-- Make sure this line exists!
+    const user = result.rows[0];
 
     // Verify password
     const validPassword = await bcrypt.compare(password, user.password);
@@ -134,19 +137,22 @@ app.post('/api/auth/login', async (req, res) => {
       return res.status(401).json({ error: 'Invalid email or password' });
     }
 
-    // Generate JWT token
+    // Generate JWT token - INSIDE try block
     const token = jwt.sign(
-      { id: user.id, email: user.email },  // <-- This is line 160
+      { id: user.id, email: user.email },
       JWT_SECRET,
       { expiresIn: '7d' }
     );
 
+    // Send response - INSIDE try block
     res.json({
       token,
       user: {
         id: user.id,
         name: user.name,
         email: user.email,
+        sessions: user.sessions || 0,
+        totalMinutes: user.total_minutes || 0,
         createdAt: user.created_at
       }
     });
@@ -154,18 +160,6 @@ app.post('/api/auth/login', async (req, res) => {
     console.error('Login error:', error);
     res.status(500).json({ error: 'Server error during login' });
   }
-  const token = jwt.sign({ id: user.id }, process.env.JWT_SECRET);
-
-  res.json({
-    token,
-    user: {
-      id: user.id,
-      name: user.name,
-      sessions: user.sessions,
-      totalMinutes: user.total_minutes, // Use the alias we discussed!
-      weeklyMinutes: user.weekly_minutes
-    }
-  });
 });
 
 // Get user stats
