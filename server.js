@@ -199,7 +199,7 @@ app.post('/api/user/stats', authenticateToken, async (req, res) => {
 
     res.json({
       sessions: result.rows[0].sessions,
-      totalMinutes: result.rows[0].total_minutes
+      totalMinutes: result.rows[0].total_minutes  // Convert to camelCase HERE
     });
   } catch (error) {
     console.error('Update stats error:', error);
@@ -208,7 +208,7 @@ app.post('/api/user/stats', authenticateToken, async (req, res) => {
 });
 
 // Get current user info
-app.get('/api/user/me', authenticateToken, async (req, res) => {
+app.get('app.get('/api/user/me', authenticateToken, async (req, res) => {
   try {
     const result = await pool.query(
       'SELECT id, name, email, sessions, total_minutes, created_at FROM users WHERE id = $1',
@@ -225,7 +225,7 @@ app.get('/api/user/me', authenticateToken, async (req, res) => {
       name: user.name,
       email: user.email,
       sessions: user.sessions || 0,
-      totalMinutes: user.total_minutes || 0,
+      totalMinutes: user.total_minutes || 0,  // Convert to camelCase HERE
       createdAt: user.created_at
     });
   } catch (error) {
@@ -233,7 +233,6 @@ app.get('/api/user/me', authenticateToken, async (req, res) => {
     res.status(500).json({ error: 'Server error getting user info' });
   }
 });
-
 // Health check endpoint
 app.get('/health', (req, res) => {
   res.json({ status: 'OK' });
