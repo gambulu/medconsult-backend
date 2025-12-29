@@ -157,6 +157,18 @@ app.post('/api/auth/login', async (req, res) => {
     console.error('Login error:', error);
     res.status(500).json({ error: 'Server error during login' });
   }
+  const token = jwt.sign({ id: user.id }, process.env.JWT_SECRET);
+
+  res.json({
+    token,
+    user: {
+      id: user.id,
+      name: user.name,
+      sessions: user.sessions,
+      totalMinutes: user.total_minutes, // Use the alias we discussed!
+      weeklyMinutes: user.weekly_minutes
+    }
+  });
 });
 
 // Get user stats
@@ -184,31 +196,25 @@ app.get('/api/user/stats', authenticateToken, async (req, res) => {
 // Update user stats (after session ends)
 app.post('/api/user/stats', authenticateToken, async (req, res) => {
   const { sessionDuration } = req.body;
+  // Use Math.ceil so short calls (e.g. 10s) count as at least 1 minute
+  const minutes = Math.ceil(sessionDuration / 60);
 
   try {
-    // We use Math.max(1, ...) to ensure even a 10-second call counts as 1 minute
-    const minutes = Math.max(1, Math.floor(sessionDuration / 60));
-
     const result = await pool.query(
       `UPDATE users 
        SET sessions = sessions + 1, 
            total_minutes = total_minutes + $1,
            weekly_minutes = weekly_minutes + $1 
        WHERE id = $2 
-       RETURNING sessions, total_minutes, weekly_minutes`,
-      [minutes, req.user.id]/api/user/me
+       RETURNING sessions, total_minutes AS "totalMinutes", weekly_minutes AS "weeklyMinutes"`,
+      [minutes, req.user.id]
     );
-
-    res.json({
-      sessions: result.rows[0].sessions,
-      totalMinutes: result.rows[0].total_minutes,
-      weeklyMinutes: result.rows[0].weekly_minutes
-    });
-  } catch (error) {
-    console.error('Update stats error:', error);
-    res.status(500).json({ error: 'Server error updating stats' });
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).send('Server Error');
   }
-}); // Ensure this closing is exactly like this
+});
 
 // Get current user info
 app.get('/api/user/me', authenticateToken, async (req, res) => {
