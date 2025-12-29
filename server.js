@@ -196,7 +196,7 @@ app.post('/api/user/stats', authenticateToken, async (req, res) => {
            weekly_minutes = weekly_minutes + $1 
        WHERE id = $2 
        RETURNING sessions, total_minutes, weekly_minutes`,
-      [minutes, req.user.id]
+      [minutes, req.user.id]/api/user/me
     );
 
     res.json({
@@ -211,7 +211,7 @@ app.post('/api/user/stats', authenticateToken, async (req, res) => {
 }); // Ensure this closing is exactly like this
 
 // Get current user info
-app.get('app.get('/api/user/me', authenticateToken, async (req, res) => {
+app.get('/api/user/me', authenticateToken, async (req, res) => {
   try {
     const result = await pool.query(
       'SELECT id, name, email, sessions, total_minutes, created_at FROM users WHERE id = $1',
