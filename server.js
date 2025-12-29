@@ -9,8 +9,14 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 
 // Middleware
+// Replace your old app.use(cors()) block with this:
 app.use(cors({
-  origin: "https://frontend-c0gzac5ij-daniels-projects-b6705c2e.vercel.app",
+  origin: [
+    'https://frontend-theta-lyart-52.vercel.app', // Your NEW Vercel URL
+    'http://localhost:3000'                      // For local testing
+  ],
+  methods: ['GET', 'POST', 'PUT', 'DELETE'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
   credentials: true
 }));
 app.use(express.json());
