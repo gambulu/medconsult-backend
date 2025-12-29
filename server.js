@@ -113,10 +113,7 @@ app.post('/api/auth/login', async (req, res) => {
   const { email, password } = req.body;
 
   try {
-    // Validate input
-    if (!email || !password) {
-      return res.status(400).json({ error: 'Email and password are required' });
-    }
+    // ... validation code ...
 
     // Find user
     const result = await pool.query(
@@ -128,7 +125,7 @@ app.post('/api/auth/login', async (req, res) => {
       return res.status(401).json({ error: 'Invalid email or password' });
     }
 
-    const user = result.rows[0];
+    const user = result.rows[0];  // <-- Make sure this line exists!
 
     // Verify password
     const validPassword = await bcrypt.compare(password, user.password);
@@ -139,7 +136,7 @@ app.post('/api/auth/login', async (req, res) => {
 
     // Generate JWT token
     const token = jwt.sign(
-      { id: user.id, email: user.email },
+      { id: user.id, email: user.email },  // <-- This is line 160
       JWT_SECRET,
       { expiresIn: '7d' }
     );
