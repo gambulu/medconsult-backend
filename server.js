@@ -227,6 +227,7 @@ app.get('/api/user/me', authenticateToken, async (req, res) => {
       email: user.email,
       sessions: user.sessions || 0,
       totalMinutes: user.total_minutes || 0,  // Convert to camelCase HERE
+      weeklyMinutes: user.weekly_minutes || 0,
       createdAt: user.created_at
     });
   } catch (error) {
