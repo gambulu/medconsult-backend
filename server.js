@@ -153,6 +153,7 @@ app.post('/api/auth/login', async (req, res) => {
         email: user.email,
         sessions: user.sessions || 0,
         totalMinutes: user.total_minutes || 0,
+        weeklyMinutes: user.weekly_minutes || 0,
         createdAt: user.created_at
       }
     });
@@ -211,7 +212,7 @@ app.post('/api/user/stats', authenticateToken, async (req, res) => {
 app.get('/api/user/me', authenticateToken, async (req, res) => {
   try {
     const result = await pool.query(
-      'SELECT id, name, email, sessions, total_minutes, created_at FROM users WHERE id = $1',
+      'SELECT id, name, email, sessions, total_minutes, weekly_minutes, created_at FROM users WHERE id = $1',
       [req.user.id]
     );
 
