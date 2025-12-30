@@ -3,6 +3,8 @@ const cors = require('cors');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const { Pool } = require('pg');
+const nodemailer = require('nodemailer');
+const crypto = require('crypto');
 require('dotenv').config();
 
 const app = express();
@@ -29,6 +31,27 @@ const pool = new Pool({
   password: process.env.DB_PASSWORD,
   port: process.env.DB_PORT || 5432,
 });
+
+const transporter = nodemailer.createTransport({
+  host: process.env.SMTP_HOST,
+  port: Number(process.env.SMTP_PORT || 587),
+  secure: Number(process.env.SMTP_PORT) === 465,
+  auth: {
+    user: process.env.SMTP_USER,
+    pass: process.env.SMTP_PASS
+  }
+});
+
+const runMigrations = async () => {
+  try {
+    await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified BOOLEAN DEFAULT FALSE');
+    await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verification_token TEXT');
+    await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verification_expires TIMESTAMP WITH TIME ZONE');
+  } catch (e) {
+    console.error(e);
+  }
+};
+runMigrations();
 
 // JWT secret
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-this';
@@ -86,6 +109,26 @@ app.post('/api/auth/signup', async (req, res) => {
 
     const user = result.rows[0];
 
+    const emailToken = crypto.randomBytes(32).toString('hex');
+    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    await pool.query(
+      'UPDATE users SET email_verified = COALESCE(email_verified, false), email_verification_token = $1, email_verification_expires = $2 WHERE id = $3',
+      [emailToken, expiresAt, user.id]
+    );
+    const base = process.env.VERIFICATION_BASE_URL || `http://localhost:${PORT}`;
+    const verifyLink = `${base}/api/auth/verify-email?token=${encodeURIComponent(emailToken)}&email=${encodeURIComponent(user.email)}`;
+    try {
+      await transporter.sendMail({
+        from: process.env.EMAIL_FROM || 'no-reply@medconsult.pro',
+        to: user.email,
+        subject: 'Verify your email',
+        text: `Verify your email: ${verifyLink}`,
+        html: `<p>Verify your email:</p><p><a href="${verifyLink}">${verifyLink}</a></p>`
+      });
+    } catch (e) {
+      console.error(e);
+    }
+
     // Generate JWT token
     const token = jwt.sign(
       { id: user.id, email: user.email },
@@ -137,6 +180,10 @@ app.post('/api/auth/login', async (req, res) => {
       return res.status(401).json({ error: 'Invalid email or password' });
     }
 
+    if (!user.email_verified) {
+      return res.status(403).json({ error: 'Email not verified' });
+    }
+
     // Generate JWT token - INSIDE try block
     const token = jwt.sign(
       { id: user.id, email: user.email },
@@ -163,11 +210,85 @@ app.post('/api/auth/login', async (req, res) => {
   }
 });
 
+app.get('/api/auth/verify-email', async (req, res) => {
+  const { token, email } = req.query;
+  if (!token || !email) {
+    return res.status(400).json({ error: 'Invalid verification link' });
+  }
+  try {
+    const result = await pool.query(
+      'SELECT id, email_verification_token, email_verification_expires FROM users WHERE email = $1',
+      [email.toLowerCase()]
+    );
+    if (result.rows.length === 0) {
+      return res.status(400).json({ error: 'Invalid verification request' });
+    }
+    const user = result.rows[0];
+    if (!user.email_verification_token || user.email_verification_token !== token) {
+      return res.status(400).json({ error: 'Invalid verification token' });
+    }
+    if (user.email_verification_expires && new Date(user.email_verification_expires) < new Date()) {
+      return res.status(400).json({ error: 'Verification token expired' });
+    }
+    await pool.query(
+      'UPDATE users SET email_verified = true, email_verification_token = NULL, email_verification_expires = NULL WHERE id = $1',
+      [user.id]
+    );
+    res.json({ success: true });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: 'Server error during verification' });
+  }
+});
+
+app.post('/api/auth/resend-verification', async (req, res) => {
+  const { email } = req.body;
+  if (!email) {
+    return res.status(400).json({ error: 'Email required' });
+  }
+  try {
+    const result = await pool.query(
+      'SELECT id, email_verified FROM users WHERE email = $1',
+      [email.toLowerCase()]
+    );
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    const user = result.rows[0];
+    if (user.email_verified) {
+      return res.json({ success: true });
+    }
+    const emailToken = crypto.randomBytes(32).toString('hex');
+    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    await pool.query(
+      'UPDATE users SET email_verification_token = $1, email_verification_expires = $2 WHERE id = $3',
+      [emailToken, expiresAt, user.id]
+    );
+    const base = process.env.VERIFICATION_BASE_URL || `http://localhost:${PORT}`;
+    const verifyLink = `${base}/api/auth/verify-email?token=${encodeURIComponent(emailToken)}&email=${encodeURIComponent(email.toLowerCase())}`;
+    try {
+      await transporter.sendMail({
+        from: process.env.EMAIL_FROM || 'no-reply@medconsult.pro',
+        to: email.toLowerCase(),
+        subject: 'Verify your email',
+        text: `Verify your email: ${verifyLink}`,
+        html: `<p>Verify your email:</p><p><a href="${verifyLink}">${verifyLink}</a></p>`
+      });
+    } catch (e) {
+      console.error(e);
+    }
+    res.json({ success: true });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: 'Server error resending verification' });
+  }
+});
+
 // Get user stats
 app.get('/api/user/stats', authenticateToken, async (req, res) => {
   try {
     const result = await pool.query(
-      'SELECT sessions, total_minutes FROM users WHERE id = $1',
+      'SELECT sessions, total_minutes, weekly_minutes FROM users WHERE id = $1',
       [req.user.id]
     );
 
@@ -177,7 +298,8 @@ app.get('/api/user/stats', authenticateToken, async (req, res) => {
 
     res.json({
       sessions: result.rows[0].sessions || 0,
-      totalMinutes: result.rows[0].total_minutes || 0
+      totalMinutes: result.rows[0].total_minutes || 0,
+      weeklyMinutes: result.rows[0].weekly_minutes || 0
     });
   } catch (error) {
     console.error('Get stats error:', error);
