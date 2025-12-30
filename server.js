@@ -42,6 +42,39 @@ const transporter = nodemailer.createTransport({
   }
 });
 
+let EMAIL_ENABLED = true;
+if (!process.env.SMTP_HOST || !process.env.SMTP_USER || !process.env.SMTP_PASS) {
+  EMAIL_ENABLED = false;
+  console.error('SMTP configuration missing');
+} else {
+  transporter.verify().then(() => {
+    console.log('SMTP ready');
+  }).catch((err) => {
+    EMAIL_ENABLED = false;
+    console.error('SMTP verify failed', err && err.message ? err.message : err);
+  });
+}
+
+const sendVerification = async (to, verifyLink) => {
+  if (!EMAIL_ENABLED) {
+    console.log('Email disabled, verification link:', verifyLink);
+    return false;
+  }
+  try {
+    await transporter.sendMail({
+      from: process.env.EMAIL_FROM || 'no-reply@medconsult.pro',
+      to,
+      subject: 'Verify your email',
+      text: `Verify your email: ${verifyLink}`,
+      html: `<p>Verify your email:</p><p><a href="${verifyLink}">${verifyLink}</a></p>`
+    });
+    return true;
+  } catch (e) {
+    console.error('Email send failed', e && e.message ? e.message : e);
+    return false;
+  }
+};
+
 const runMigrations = async () => {
   try {
     await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified BOOLEAN DEFAULT FALSE');
@@ -117,17 +150,7 @@ app.post('/api/auth/signup', async (req, res) => {
     );
     const base = process.env.VERIFICATION_BASE_URL || `http://localhost:${PORT}`;
     const verifyLink = `${base}/api/auth/verify-email?token=${encodeURIComponent(emailToken)}&email=${encodeURIComponent(user.email)}`;
-    try {
-      await transporter.sendMail({
-        from: process.env.EMAIL_FROM || 'no-reply@medconsult.pro',
-        to: user.email,
-        subject: 'Verify your email',
-        text: `Verify your email: ${verifyLink}`,
-        html: `<p>Verify your email:</p><p><a href="${verifyLink}">${verifyLink}</a></p>`
-      });
-    } catch (e) {
-      console.error(e);
-    }
+    const sent = await sendVerification(user.email, verifyLink);
 
     // Generate JWT token
     const token = jwt.sign(
@@ -136,15 +159,16 @@ app.post('/api/auth/signup', async (req, res) => {
       { expiresIn: '7d' }
     );
 
-    res.status(201).json({
+    res.status(201).json(Object.assign({
       token,
       user: {
         id: user.id,
         name: user.name,
         email: user.email,
         createdAt: user.created_at
-      }
-    });
+      },
+      verificationSent: !!sent
+    }, sent ? {} : { verifyLink }));
   } catch (error) {
     console.error('Signup error:', error);
     res.status(500).json({ error: 'Server error during signup' });
@@ -266,22 +290,16 @@ app.post('/api/auth/resend-verification', async (req, res) => {
     );
     const base = process.env.VERIFICATION_BASE_URL || `http://localhost:${PORT}`;
     const verifyLink = `${base}/api/auth/verify-email?token=${encodeURIComponent(emailToken)}&email=${encodeURIComponent(email.toLowerCase())}`;
-    try {
-      await transporter.sendMail({
-        from: process.env.EMAIL_FROM || 'no-reply@medconsult.pro',
-        to: email.toLowerCase(),
-        subject: 'Verify your email',
-        text: `Verify your email: ${verifyLink}`,
-        html: `<p>Verify your email:</p><p><a href="${verifyLink}">${verifyLink}</a></p>`
-      });
-    } catch (e) {
-      console.error(e);
-    }
-    res.json({ success: true });
+    const sent = await sendVerification(email.toLowerCase(), verifyLink);
+    res.json(Object.assign({ success: true, verificationSent: !!sent }, sent ? {} : { verifyLink }));
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: 'Server error resending verification' });
   }
+});
+
+app.get('/health/email', (req, res) => {
+  res.json({ enabled: EMAIL_ENABLED });
 });
 
 // Get user stats
