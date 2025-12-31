@@ -43,6 +43,7 @@ const transporter = nodemailer.createTransport({
 });
 
 let EMAIL_ENABLED = true;
+let SMTP_VERIFY_ERROR = null;
 if (!process.env.SMTP_HOST || !process.env.SMTP_USER || !process.env.SMTP_PASS) {
   EMAIL_ENABLED = false;
   console.error('SMTP configuration missing');
@@ -51,7 +52,8 @@ if (!process.env.SMTP_HOST || !process.env.SMTP_USER || !process.env.SMTP_PASS) 
     console.log('SMTP ready');
   }).catch((err) => {
     EMAIL_ENABLED = false;
-    console.error('SMTP verify failed', err && err.message ? err.message : err);
+    SMTP_VERIFY_ERROR = err && err.message ? err.message : String(err);
+    console.error('SMTP verify failed', SMTP_VERIFY_ERROR);
   });
 }
 
@@ -61,16 +63,18 @@ const sendVerification = async (to, verifyLink) => {
     return false;
   }
   try {
-    await transporter.sendMail({
+    const info = await transporter.sendMail({
       from: process.env.EMAIL_FROM || 'no-reply@medconsult.pro',
       to,
       subject: 'Verify your email',
       text: `Verify your email: ${verifyLink}`,
       html: `<p>Verify your email:</p><p><a href="${verifyLink}">${verifyLink}</a></p>`
     });
+    console.log('Email sent', { to, messageId: info && info.messageId ? info.messageId : null });
     return true;
   } catch (e) {
-    console.error('Email send failed', e && e.message ? e.message : e);
+    const msg = e && e.message ? e.message : String(e);
+    console.error('Email send failed', msg);
     return false;
   }
 };
@@ -168,7 +172,7 @@ app.post('/api/auth/signup', async (req, res) => {
         createdAt: user.created_at
       },
       verificationSent: !!sent
-    }, sent ? {} : { verifyLink }));
+    }, sent ? {} : { verifyLink, reason: SMTP_VERIFY_ERROR || 'Email disabled' }));
   } catch (error) {
     console.error('Signup error:', error);
     res.status(500).json({ error: 'Server error during signup' });
@@ -291,7 +295,7 @@ app.post('/api/auth/resend-verification', async (req, res) => {
     const base = process.env.VERIFICATION_BASE_URL || `http://localhost:${PORT}`;
     const verifyLink = `${base}/api/auth/verify-email?token=${encodeURIComponent(emailToken)}&email=${encodeURIComponent(email.toLowerCase())}`;
     const sent = await sendVerification(email.toLowerCase(), verifyLink);
-    res.json(Object.assign({ success: true, verificationSent: !!sent }, sent ? {} : { verifyLink }));
+    res.json(Object.assign({ success: true, verificationSent: !!sent }, sent ? {} : { verifyLink, reason: SMTP_VERIFY_ERROR || 'Email disabled' }));
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: 'Server error resending verification' });
@@ -300,6 +304,32 @@ app.post('/api/auth/resend-verification', async (req, res) => {
 
 app.get('/health/email', (req, res) => {
   res.json({ enabled: EMAIL_ENABLED });
+});
+app.get('/health/email/details', (req, res) => {
+  res.json({
+    enabled: EMAIL_ENABLED,
+    host_present: !!process.env.SMTP_HOST,
+    user_present: !!process.env.SMTP_USER,
+    pass_present: !!process.env.SMTP_PASS,
+    port: Number(process.env.SMTP_PORT || 587),
+    secure: Number(process.env.SMTP_PORT) === 465,
+    verification_base_url: process.env.VERIFICATION_BASE_URL || null,
+    last_verify_error: SMTP_VERIFY_ERROR
+  });
+});
+
+app.post('/api/auth/debug-send', async (req, res) => {
+  const { email } = req.body || {};
+  if (!email) return res.status(400).json({ error: 'Email required' });
+  try {
+    const token = crypto.randomBytes(16).toString('hex');
+    const base = process.env.VERIFICATION_BASE_URL || `http://localhost:${PORT}`;
+    const link = `${base}/api/auth/verify-email?token=${encodeURIComponent(token)}&email=${encodeURIComponent(email.toLowerCase())}`;
+    const sent = await sendVerification(email.toLowerCase(), link);
+    res.json(Object.assign({ success: true, verificationSent: !!sent }, sent ? {} : { verifyLink: link, reason: SMTP_VERIFY_ERROR || 'Email disabled' }));
+  } catch (e) {
+    res.status(500).json({ error: 'Debug send failed' });
+  }
 });
 
 // Get user stats
