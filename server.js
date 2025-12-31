@@ -290,6 +290,7 @@ app.post('/api/auth/debug-send', async (req, res) => {
     const sent = await sendVerification(email.toLowerCase(), link);
     res.json(Object.assign({ success: true, verificationSent: !!sent }, sent ? {} : { verifyLink: link, reason: SMTP_VERIFY_ERROR || 'Email disabled' }));
   } catch (e) {
+    console.error('Debug send error:', e);  // ← ADD THIS
     res.status(500).json({ error: 'Debug send failed' });
   }
 });
