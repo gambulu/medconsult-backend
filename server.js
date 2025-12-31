@@ -32,7 +32,7 @@ const pool = new Pool({
   port: process.env.DB_PORT || 5432,
 });
 
-const transporter = nodemailer.createTransport({
+let transporter = nodemailer.createTransport({
   host: process.env.SMTP_HOST,
   port: Number(process.env.SMTP_PORT || 587),
   secure: Number(process.env.SMTP_PORT) === 465,
@@ -44,6 +44,8 @@ const transporter = nodemailer.createTransport({
 
 let EMAIL_ENABLED = true;
 let SMTP_VERIFY_ERROR = null;
+let ACTIVE_SMTP_PORT = Number(process.env.SMTP_PORT || 587);
+let ACTIVE_SMTP_SECURE = Number(process.env.SMTP_PORT) === 465;
 if (!process.env.SMTP_HOST || !process.env.SMTP_USER || !process.env.SMTP_PASS) {
   EMAIL_ENABLED = false;
   console.error('SMTP configuration missing');
@@ -54,6 +56,30 @@ if (!process.env.SMTP_HOST || !process.env.SMTP_USER || !process.env.SMTP_PASS) 
     EMAIL_ENABLED = false;
     SMTP_VERIFY_ERROR = err && err.message ? err.message : String(err);
     console.error('SMTP verify failed', SMTP_VERIFY_ERROR);
+    const host = process.env.SMTP_HOST;
+    const user = process.env.SMTP_USER;
+    const pass = process.env.SMTP_PASS;
+    const tryAlt = host && (host.includes('gmail') || host.includes('smtp.'));
+    if (tryAlt) {
+      const altOptions = {
+        host,
+        port: 465,
+        secure: true,
+        auth: { user, pass }
+      };
+      transporter = nodemailer.createTransport(altOptions);
+      transporter.verify().then(() => {
+        EMAIL_ENABLED = true;
+        ACTIVE_SMTP_PORT = 465;
+        ACTIVE_SMTP_SECURE = true;
+        SMTP_VERIFY_ERROR = null;
+        console.log('SMTP ready on fallback 465');
+      }).catch((err2) => {
+        EMAIL_ENABLED = false;
+        SMTP_VERIFY_ERROR = err2 && err2.message ? err2.message : String(err2);
+        console.error('SMTP fallback verify failed', SMTP_VERIFY_ERROR);
+      });
+    }
   });
 }
 
@@ -64,7 +90,7 @@ const sendVerification = async (to, verifyLink) => {
   }
   try {
     const info = await transporter.sendMail({
-      from: process.env.EMAIL_FROM || 'no-reply@medconsult.pro',
+      from: process.env.EMAIL_FROM || 'alexcowley628@gmail.com',
       to,
       subject: 'Verify your email',
       text: `Verify your email: ${verifyLink}`,
@@ -311,8 +337,8 @@ app.get('/health/email/details', (req, res) => {
     host_present: !!process.env.SMTP_HOST,
     user_present: !!process.env.SMTP_USER,
     pass_present: !!process.env.SMTP_PASS,
-    port: Number(process.env.SMTP_PORT || 587),
-    secure: Number(process.env.SMTP_PORT) === 465,
+    port: ACTIVE_SMTP_PORT,
+    secure: ACTIVE_SMTP_SECURE,
     verification_base_url: process.env.VERIFICATION_BASE_URL || null,
     last_verify_error: SMTP_VERIFY_ERROR
   });
