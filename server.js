@@ -50,37 +50,8 @@ if (!process.env.SMTP_HOST || !process.env.SMTP_USER || !process.env.SMTP_PASS) 
   EMAIL_ENABLED = false;
   console.error('SMTP configuration missing');
 } else {
-  transporter.verify().then(() => {
-    console.log('SMTP ready');
-  }).catch((err) => {
-    EMAIL_ENABLED = false;
-    SMTP_VERIFY_ERROR = err && err.message ? err.message : String(err);
-    console.error('SMTP verify failed', SMTP_VERIFY_ERROR);
-    const host = process.env.SMTP_HOST;
-    const user = process.env.SMTP_USER;
-    const pass = process.env.SMTP_PASS;
-    const tryAlt = host && (host.includes('gmail') || host.includes('smtp.'));
-    if (tryAlt) {
-      const altOptions = {
-        host,
-        port: 465,
-        secure: true,
-        auth: { user, pass }
-      };
-      transporter = nodemailer.createTransport(altOptions);
-      transporter.verify().then(() => {
-        EMAIL_ENABLED = true;
-        ACTIVE_SMTP_PORT = 465;
-        ACTIVE_SMTP_SECURE = true;
-        SMTP_VERIFY_ERROR = null;
-        console.log('SMTP ready on fallback 465');
-      }).catch((err2) => {
-        EMAIL_ENABLED = false;
-        SMTP_VERIFY_ERROR = err2 && err2.message ? err2.message : String(err2);
-        console.error('SMTP fallback verify failed', SMTP_VERIFY_ERROR);
-      });
-    }
-  });
+  EMAIL_ENABLED = true;
+  console.log('SMTP configured, will attempt to send emails');
 }
 
 const sendVerification = async (to, verifyLink) => {
