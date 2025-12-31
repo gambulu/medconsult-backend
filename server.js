@@ -44,48 +44,13 @@ let transporter = nodemailer.createTransport({
 
 let EMAIL_ENABLED = true;
 let SMTP_VERIFY_ERROR = null;
-let ACTIVE_SMTP_PORT = Number(process.env.SMTP_PORT || 587);
-let ACTIVE_SMTP_SECURE = Number(process.env.SMTP_PORT) === 465;
+
 if (!process.env.SMTP_HOST || !process.env.SMTP_USER || !process.env.SMTP_PASS) {
   EMAIL_ENABLED = false;
   console.error('SMTP configuration missing');
 } else {
-  EMAIL_ENABLED = true;
-  console.log('SMTP configured, will attempt to send emails');
+  console.log('SMTP configured and ready');
 }
-
-const sendVerification = async (to, verifyLink) => {
-  if (!EMAIL_ENABLED) {
-    console.log('Email disabled, verification link:', verifyLink);
-    return false;
-  }
-  try {
-    const info = await transporter.sendMail({
-      from: process.env.EMAIL_FROM || 'alexcowley628@gmail.com',
-      to,
-      subject: 'Verify your email',
-      text: `Verify your email: ${verifyLink}`,
-      html: `<p>Verify your email:</p><p><a href="${verifyLink}">${verifyLink}</a></p>`
-    });
-    console.log('Email sent', { to, messageId: info && info.messageId ? info.messageId : null });
-    return true;
-  } catch (e) {
-    const msg = e && e.message ? e.message : String(e);
-    console.error('Email send failed', msg);
-    return false;
-  }
-};
-
-const runMigrations = async () => {
-  try {
-    await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified BOOLEAN DEFAULT FALSE');
-    await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verification_token TEXT');
-    await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verification_expires TIMESTAMP WITH TIME ZONE');
-  } catch (e) {
-    console.error(e);
-  }
-};
-runMigrations();
 
 // JWT secret
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-this';
