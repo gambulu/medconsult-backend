@@ -9,6 +9,7 @@ require('dotenv').config();
 
 const app = express();
 const PORT = process.env.PORT || 5000;
+const FRONTEND_URL = process.env.FRONTEND_URL || 'https://frontend-theta-lyart-52.vercel.app';
 
 // Middleware
 // Replace your old app.use(cors()) block with this:
@@ -61,6 +62,41 @@ if (EMAIL_PROVIDER === 'smtp') {
   SMTP_VERIFY_ERROR = null;
 }
 
+const buildVerificationEmailHTML = (verifyLink) => {
+  const brand = 'MedConsult Pro';
+  return (
+    '<!doctype html>' +
+    '<html lang="en">' +
+    '<head>' +
+    '<meta charset="utf-8">' +
+    '<meta name="viewport" content="width=device-width, initial-scale=1">' +
+    '<title>Email Verification</title>' +
+    '</head>' +
+    '<body style="margin:0;padding:0;background:#f7fafc;font-family:Inter,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#1a202c;">' +
+    '<table role="presentation" style="width:100%;border-collapse:collapse;background:#f7fafc;"><tr><td align="center" style="padding:24px;">' +
+    '<table role="presentation" style="width:100%;max-width:560px;border-collapse:collapse;background:#ffffff;border-radius:12px;box-shadow:0 2px 8px rgba(0,0,0,0.06);overflow:hidden;">' +
+    '<tr><td style="padding:24px 24px 8px 24px;text-align:center;background:#0ea5e9;color:#ffffff;">' +
+    '<div style="font-weight:700;font-size:20px;letter-spacing:0.2px;">' + brand + '</div>' +
+    '</td></tr>' +
+    '<tr><td style="padding:24px 24px 0 24px;">' +
+    '<h1 style="margin:0 0 12px 0;font-size:20px;line-height:28px;font-weight:700;color:#111827;">Verify your email</h1>' +
+    '<p style="margin:0 0 16px 0;font-size:14px;line-height:22px;color:#374151;">Thanks for signing up. Please confirm your email to continue.</p>' +
+    '</td></tr>' +
+    '<tr><td style="padding:8px 24px 24px 24px;">' +
+    '<a href="' + verifyLink + '" style="display:inline-block;background:#0ea5e9;color:#ffffff;text-decoration:none;font-weight:600;border-radius:8px;padding:12px 18px;">Verify Email</a>' +
+    '<p style="margin:16px 0 0 0;font-size:12px;color:#6b7280;">If the button does not work, copy and paste this link:</p>' +
+    '<p style="margin:4px 0 0 0;font-size:12px;color:#2563eb;word-break:break-all;"><a href="' + verifyLink + '" style="color:#2563eb;text-decoration:underline;">' + verifyLink + '</a></p>' +
+    '</td></tr>' +
+    '<tr><td style="padding:16px 24px;text-align:center;border-top:1px solid #e5e7eb;font-size:12px;color:#6b7280;">' +
+    'This link expires in 24 hours.' +
+    '</td></tr>' +
+    '</table>' +
+    '</td></tr></table>' +
+    '</body>' +
+    '</html>'
+  );
+};
+
 const sendVerification = async (to, verifyLink) => {
   try {
     if (EMAIL_PROVIDER === 'resend' && RESEND_API_KEY) {
@@ -69,7 +105,7 @@ const sendVerification = async (to, verifyLink) => {
         to,
         subject: 'Verify your email',
         text: `Verify your email: ${verifyLink}`,
-        html: `<p>Verify your email:</p><p><a href="${verifyLink}">${verifyLink}</a></p>`
+        html: buildVerificationEmailHTML(verifyLink)
       });
       const ok = await new Promise((resolve) => {
         const req = require('https').request({
@@ -105,7 +141,7 @@ const sendVerification = async (to, verifyLink) => {
         to,
         subject: 'Verify your email',
         text: `Verify your email: ${verifyLink}`,
-        html: `<p>Verify your email:</p><p><a href="${verifyLink}">${verifyLink}</a></p>`
+        html: buildVerificationEmailHTML(verifyLink)
       });
       return !!(info && info.messageId);
     }
@@ -299,7 +335,7 @@ app.get('/api/auth/verify-email', async (req, res) => {
       'UPDATE users SET email_verified = true, email_verification_token = NULL, email_verification_expires = NULL WHERE id = $1',
       [user.id]
     );
-    res.json({ success: true });
+    res.redirect(`${FRONTEND_URL}?verified=1`);
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: 'Server error during verification' });
