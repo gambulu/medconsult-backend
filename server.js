@@ -317,16 +317,26 @@ app.get('/health/email/details', (req, res) => {
 
 app.post('/api/auth/debug-send', async (req, res) => {
   const { email } = req.body || {};
+  console.log('1. Received email:', email); // ADD
+  
   if (!email) return res.status(400).json({ error: 'Email required' });
+  
   try {
     const token = crypto.randomBytes(16).toString('hex');
     const base = process.env.VERIFICATION_BASE_URL || `http://localhost:${PORT}`;
     const link = `${base}/api/auth/verify-email?token=${encodeURIComponent(token)}&email=${encodeURIComponent(email.toLowerCase())}`;
+    
+    console.log('2. Generated link:', link); // ADD
+    console.log('3. About to call sendVerification'); // ADD
+    
     const sent = await sendVerification(email.toLowerCase(), link);
+    
+    console.log('4. sendVerification result:', sent); // ADD
+    
     res.json(Object.assign({ success: true, verificationSent: !!sent }, sent ? {} : { verifyLink: link, reason: SMTP_VERIFY_ERROR || 'Email disabled' }));
   } catch (e) {
-    console.error('Debug send error:', e);  // ← ADD THIS
-    res.status(500).json({ error: 'Debug send failed' });
+    console.error('Debug send error:', e);
+    res.status(500).json({ error: 'Debug send failed', details: e.message }); // ADD e.message
   }
 });
 
