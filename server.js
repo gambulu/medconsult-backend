@@ -47,31 +47,71 @@ let SMTP_VERIFY_ERROR = null;
 let ACTIVE_SMTP_PORT = Number(process.env.SMTP_PORT || 587);
 let ACTIVE_SMTP_SECURE = Number(process.env.SMTP_PORT) === 465;
 
-if (!process.env.SMTP_HOST || !process.env.SMTP_USER || !process.env.SMTP_PASS) {
-  EMAIL_ENABLED = false;
-  console.error('SMTP configuration missing');
+const RESEND_API_KEY = process.env.RESEND_API_KEY || null;
+const RESEND_FROM = process.env.RESEND_FROM || process.env.EMAIL_FROM || 'onboarding@resend.dev';
+
+const EMAIL_PROVIDER = RESEND_API_KEY ? 'resend' : 'smtp';
+if (EMAIL_PROVIDER === 'smtp') {
+  if (!process.env.SMTP_HOST || !process.env.SMTP_USER || !process.env.SMTP_PASS) {
+    EMAIL_ENABLED = false;
+    SMTP_VERIFY_ERROR = 'Missing SMTP configuration';
+  }
 } else {
-  console.log('SMTP configured and ready');
+  EMAIL_ENABLED = true;
+  SMTP_VERIFY_ERROR = null;
 }
 
 const sendVerification = async (to, verifyLink) => {
-  if (!EMAIL_ENABLED) {
-    console.log('Email disabled, verification link:', verifyLink);
-    return false;
-  }
   try {
-    const info = await transporter.sendMail({
-      from: process.env.EMAIL_FROM || 'alexcowley628@gmail.com',
-      to,
-      subject: 'Verify your email',
-      text: `Verify your email: ${verifyLink}`,
-      html: `<p>Verify your email:</p><p><a href="${verifyLink}">${verifyLink}</a></p>`
-    });
-    console.log('Email sent', { to, messageId: info && info.messageId ? info.messageId : null });
-    return true;
+    if (EMAIL_PROVIDER === 'resend' && RESEND_API_KEY) {
+      const payload = JSON.stringify({
+        from: RESEND_FROM,
+        to,
+        subject: 'Verify your email',
+        text: `Verify your email: ${verifyLink}`,
+        html: `<p>Verify your email:</p><p><a href="${verifyLink}">${verifyLink}</a></p>`
+      });
+      const ok = await new Promise((resolve) => {
+        const req = require('https').request({
+          hostname: 'api.resend.com',
+          path: '/emails',
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${RESEND_API_KEY}`,
+            'Content-Type': 'application/json',
+            'Content-Length': Buffer.byteLength(payload)
+          }
+        }, (res) => {
+          let data = '';
+          res.on('data', (chunk) => { data += chunk; });
+          res.on('end', () => {
+            const success = res.statusCode >= 200 && res.statusCode < 300;
+            if (!success) SMTP_VERIFY_ERROR = `Resend error ${res.statusCode}`;
+            resolve(success);
+          });
+        });
+        req.on('error', (err) => {
+          SMTP_VERIFY_ERROR = err && err.message ? err.message : String(err);
+          resolve(false);
+        });
+        req.write(payload);
+        req.end();
+      });
+      if (ok) return true;
+    }
+    if (EMAIL_PROVIDER === 'smtp' && EMAIL_ENABLED) {
+      const info = await transporter.sendMail({
+        from: process.env.EMAIL_FROM || process.env.SMTP_USER,
+        to,
+        subject: 'Verify your email',
+        text: `Verify your email: ${verifyLink}`,
+        html: `<p>Verify your email:</p><p><a href="${verifyLink}">${verifyLink}</a></p>`
+      });
+      return !!(info && info.messageId);
+    }
+    return false;
   } catch (e) {
-    const msg = e && e.message ? e.message : String(e);
-    console.error('Email send failed', msg);
+    SMTP_VERIFY_ERROR = e && e.message ? e.message : String(e);
     return false;
   }
 };
@@ -305,6 +345,9 @@ app.get('/health/email', (req, res) => {
 app.get('/health/email/details', (req, res) => {
   res.json({
     enabled: EMAIL_ENABLED,
+    provider: EMAIL_PROVIDER,
+    resend_present: !!RESEND_API_KEY,
+    from: RESEND_FROM || process.env.EMAIL_FROM || null,
     host_present: !!process.env.SMTP_HOST,
     user_present: !!process.env.SMTP_USER,
     pass_present: !!process.env.SMTP_PASS,
